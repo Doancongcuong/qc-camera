@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>QC Camera</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif;overflow:hidden}
+  #v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #bar{position:absolute;left:0;right:0;bottom:0;padding:12px 0 24px;text-align:center;background:linear-gradient(transparent,rgba(0,0,0,.7))}
+  #st{font-size:14px;margin-bottom:10px;min-height:20px}
+  #shot{width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid #999}
+  #shot:active{background:#ccc}
+  #top{position:absolute;top:0;left:0;right:0;padding:8px 12px;background:rgba(0,0,0,.5);font-size:13px;display:flex;justify-content:space-between}
+  #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .15s}
+</style>
+</head>
+<body>
+<video id="v" autoplay playsinline muted></video>
+<div id="flash"></div>
+<div id="top"><span id="cnt">Đã gửi: 0</span><span id="q">Hàng đợi: 0</span></div>
+<div id="bar"><div id="st">Chạm nút để chụp</div><button id="shot" aria-label="Chụp"></button></div>
+<script>
+const GAS = 'https://script.google.com/macros/s/AKfycbzDm2-MOt4oqwKflqoyTv_6lwFbri4nDKUVfxBP3V5SSMcSngRVPeDLo6S2YJEjuNHliA/exec';
+const KEY = '129dccDCC';
+const MAX_SIDE = 1280, QUALITY = 0.7;
+
+const v = document.getElementById('v'), st = document.getElementById('st');
+const cntEl = document.getElementById('cnt'), qEl = document.getElementById('q');
+const flash = document.getElementById('flash');
+let sent = 0, queue = [], sending = false;
+try { queue = JSON.parse(localStorage.getItem('qcq') || '[]'); } catch (e) {}
+
+function saveQ() { try { localStorage.setItem('qcq', JSON.stringify(queue)); } catch (e) {} qEl.textContent = 'Hàng đợi: ' + queue.length; }
+
+async function startCam() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
+    });
+    v.srcObject = stream;
+  } catch (e) { st.textContent = 'Lỗi camera: ' + e.message; }
+}
+
+function capture() {
+  if (!v.videoWidth) return;
+  const r = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  queue.push(c.toDataURL('image/jpeg', QUALITY).split(',')[1]); saveQ();
+  flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
+  if (navigator.vibrate) navigator.vibrate(30);
+  pump();
+}
+
+async function pump() {
+  if (sending) return; sending = true;
+  while (queue.length) {
+    try {
+      st.textContent = 'Đang gửi...';
+      const res = await fetch(GAS, { method: 'POST', body: JSON.stringify({ key: KEY, image: queue[0] }) });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.err || 'GAS lỗi');
+      queue.shift(); sent++; saveQ();
+      cntEl.textContent = 'Đã gửi: ' + sent;
+      st.textContent = '✅ Đã gửi';
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    } catch (e) { st.textContent = '⚠️ Lỗi mạng, sẽ gửi lại...'; await new Promise(r => setTimeout(r, 3000)); }
+  }
+  sending = false;
+}
+
+document.getElementById('shot').addEventListener('click', capture);
+v.addEventListener('click', capture);
+saveQ(); startCam(); if (queue.length) pump();
+</script>
+</body>
+</html>
