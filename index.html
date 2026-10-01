@@ -11,48 +11,55 @@
   #st{font-size:14px;margin-bottom:10px;min-height:20px}
   #shot{width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid #999}
   #shot:active{background:#ccc}
-  #top{position:absolute;top:0;left:0;right:0;padding:8px 12px;background:rgba(0,0,0,.5);font-size:13px;display:flex;justify-content:space-between}
+  #top{position:absolute;top:0;left:0;right:0;padding:8px 12px;background:rgba(0,0,0,.5);font-size:13px;display:flex;justify-content:space-between;align-items:center}
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .15s}
   #camOff{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;text-align:center;padding:20px}
+  #qbadge{padding:3px 10px;border-radius:12px;font-weight:bold;transition:background .2s}
+  #qbadge.empty{background:#1a6b1a}
+  #qbadge.pending{background:#a85a00}
+  #pushNow{display:none;margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
 </style>
 </head>
 <body>
 <video id="v" autoplay playsinline muted></video>
 <div id="camOff">Chạm màn hình để bật camera</div>
 <div id="flash"></div>
-<div id="top"><span id="cnt">Đã gửi: 0</span><span id="q">Hàng đợi: 0</span></div>
-<div id="bar"><div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div><button id="shot" aria-label="Chụp"></button></div>
+<div id="top"><span id="cnt">Đã gửi: 0</span><span id="qbadge" class="empty">Hàng đợi: 0</span></div>
+<div id="bar">
+  <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
+  <button id="shot" aria-label="Chụp"></button>
+  <div><button id="pushNow">⏫ Gửi ngay để tắt máy an toàn</button></div>
+</div>
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycbzDm2-MOt4oqwKflqoyTv_6lwFbri4nDKUVfxBP3V5SSMcSngRVPeDLo6S2YJEjuNHliA/exec';
 const KEY = '129dccDCC';
 const MAX_SIDE = 1280, QUALITY = 0.7;
-const CAM_IDLE_MS = 5000;       // camera tự tắt sau 5s không thao tác
-const MAX_QUEUE = 20;           // chặn chụp thêm nếu hàng đợi quá dài (mạng kém)
-const MAX_QUEUE_PERSIST = 5;    // chỉ lưu localStorage tối đa 5 ảnh đầu hàng đợi
+const CAM_IDLE_MS = 5000;
+const MAX_QUEUE = 20;
+const MAX_QUEUE_PERSIST = MAX_QUEUE;
 
 const v = document.getElementById('v'), st = document.getElementById('st');
-const cntEl = document.getElementById('cnt'), qEl = document.getElementById('q');
+const cntEl = document.getElementById('cnt'), qBadge = document.getElementById('qbadge');
 const flash = document.getElementById('flash'), camOff = document.getElementById('camOff');
+const pushBtn = document.getElementById('pushNow');
 
 let sent = 0, queue = [], sending = false, camActive = false, idleTimer = null;
 try { queue = JSON.parse(localStorage.getItem('qcq') || '[]'); } catch (e) {}
 
 function saveQ() {
   try { localStorage.setItem('qcq', JSON.stringify(queue.slice(0, MAX_QUEUE_PERSIST))); } catch (e) {}
-  qEl.textContent = 'Hàng đợi: ' + queue.length;
+  const n = queue.length;
+  qBadge.textContent = 'Hàng đợi: ' + n;
+  qBadge.className = n === 0 ? 'empty' : 'pending';
+  pushBtn.style.display = n > 0 ? 'inline-block' : 'none';
 }
 
-// ===== Bật/tắt camera theo nhu cầu, không giữ sống liên tục =====
 async function startCam() {
   if (camActive) { armIdleTimer(); return; }
   st.textContent = 'Đang mở camera...';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 1280 }, height: { ideal: 720 },
-        frameRate: { ideal: 15, max: 20 }
-      },
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 20 } },
       audio: false
     });
     v.srcObject = stream;
@@ -60,28 +67,17 @@ async function startCam() {
     camOff.style.display = 'none';
     st.textContent = 'Chạm nút để chụp';
     armIdleTimer();
-  } catch (e) {
-    st.textContent = 'Lỗi camera: ' + e.message;
-  }
+  } catch (e) { st.textContent = 'Lỗi camera: ' + e.message; }
 }
-
 function stopCam() {
-  if (v.srcObject) {
-    v.srcObject.getTracks().forEach(t => t.stop());
-    v.srcObject = null;
-  }
+  if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
   camActive = false;
   camOff.style.display = 'flex';
   st.textContent = 'Chạm màn hình để bật camera';
   clearTimeout(idleTimer);
 }
+function armIdleTimer() { clearTimeout(idleTimer); idleTimer = setTimeout(stopCam, CAM_IDLE_MS); }
 
-function armIdleTimer() {
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(stopCam, CAM_IDLE_MS);
-}
-
-// ===== Chụp =====
 function capture() {
   if (!camActive || !v.videoWidth) { startCam(); return; }
   if (queue.length >= MAX_QUEUE) {
@@ -97,46 +93,56 @@ function capture() {
 
   flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
   if (navigator.vibrate) navigator.vibrate(30);
-  armIdleTimer();   // mỗi lần chụp reset lại đồng hồ nghỉ
+  armIdleTimer();
   pump();
 }
 
-// ===== Gửi hàng đợi lên GAS =====
+let retryTimer = null;
 async function pump() {
   if (sending) return; sending = true;
+  clearTimeout(retryTimer);
   while (queue.length) {
     try {
-      st.textContent = 'Đang gửi...';
+      st.textContent = 'Đang gửi (' + queue.length + ' còn lại)...';
       const res = await fetch(GAS, { method: 'POST', body: JSON.stringify({ key: KEY, image: queue[0] }) });
       const j = await res.json();
       if (!j.ok) throw new Error(j.err || 'GAS lỗi');
       queue.shift(); sent++; saveQ();
       cntEl.textContent = 'Đã gửi: ' + sent;
-      st.textContent = camActive ? '✅ Đã gửi' : 'Chạm màn hình để bật camera';
+      st.textContent = camActive ? '✅ Đã gửi' : (queue.length ? 'Đang gửi tiếp...' : 'Tất cả đã gửi — an toàn để tắt máy');
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
     } catch (e) {
-      st.textContent = '⚠️ Lỗi mạng, sẽ gửi lại...';
-      await new Promise(r => setTimeout(r, 3000));
+      st.textContent = '⚠️ Lỗi mạng (' + queue.length + ' ảnh chờ), thử lại sau 3s...';
+      sending = false;
+      retryTimer = setTimeout(pump, 3000);
+      return;
     }
   }
   sending = false;
+  if (!camActive) st.textContent = 'Tất cả đã gửi — an toàn để tắt máy';
 }
 
-// ===== Sự kiện =====
+pushBtn.addEventListener('click', () => {
+  st.textContent = 'Đang ép gửi toàn bộ hàng đợi...';
+  pump();
+});
+
 document.getElementById('shot').addEventListener('click', e => { e.stopPropagation(); capture(); });
 v.addEventListener('click', capture);
 camOff.addEventListener('click', startCam);
-
-// Chạm bất kỳ đâu khi camera đang tắt sẽ tự bật lại
 document.body.addEventListener('touchstart', () => { if (!camActive) startCam(); }, { passive: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopCam(); });
 
-// Tắt camera ngay khi rời tab / khoá màn hình, tránh camera chạy ngầm vô ích
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) stopCam();
+window.addEventListener('beforeunload', (e) => {
+  if (queue.length > 0) {
+    e.preventDefault();
+    e.returnValue = 'Còn ' + queue.length + ' ảnh chưa gửi xong!';
+    return e.returnValue;
+  }
 });
 
 saveQ();
-if (queue.length) pump();  // gửi nốt ảnh còn tồn từ phiên trước, không tự bật camera
+if (queue.length) pump();
 </script>
 </body>
 </html>
