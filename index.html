@@ -6,54 +6,102 @@
 <title>QC Camera</title>
 <style>
   html,body{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif;overflow:hidden}
-  #v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#111}
   #bar{position:absolute;left:0;right:0;bottom:0;padding:12px 0 24px;text-align:center;background:linear-gradient(transparent,rgba(0,0,0,.7))}
   #st{font-size:14px;margin-bottom:10px;min-height:20px}
   #shot{width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid #999}
   #shot:active{background:#ccc}
   #top{position:absolute;top:0;left:0;right:0;padding:8px 12px;background:rgba(0,0,0,.5);font-size:13px;display:flex;justify-content:space-between}
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .15s}
+  #camOff{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;text-align:center;padding:20px}
 </style>
 </head>
 <body>
 <video id="v" autoplay playsinline muted></video>
+<div id="camOff">Chạm màn hình để bật camera</div>
 <div id="flash"></div>
 <div id="top"><span id="cnt">Đã gửi: 0</span><span id="q">Hàng đợi: 0</span></div>
-<div id="bar"><div id="st">Chạm nút để chụp</div><button id="shot" aria-label="Chụp"></button></div>
+<div id="bar"><div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div><button id="shot" aria-label="Chụp"></button></div>
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycbzDm2-MOt4oqwKflqoyTv_6lwFbri4nDKUVfxBP3V5SSMcSngRVPeDLo6S2YJEjuNHliA/exec';
 const KEY = '129dccDCC';
 const MAX_SIDE = 1280, QUALITY = 0.7;
+const CAM_IDLE_MS = 5000;       // camera tự tắt sau 5s không thao tác
+const MAX_QUEUE = 20;           // chặn chụp thêm nếu hàng đợi quá dài (mạng kém)
+const MAX_QUEUE_PERSIST = 5;    // chỉ lưu localStorage tối đa 5 ảnh đầu hàng đợi
 
 const v = document.getElementById('v'), st = document.getElementById('st');
 const cntEl = document.getElementById('cnt'), qEl = document.getElementById('q');
-const flash = document.getElementById('flash');
-let sent = 0, queue = [], sending = false;
+const flash = document.getElementById('flash'), camOff = document.getElementById('camOff');
+
+let sent = 0, queue = [], sending = false, camActive = false, idleTimer = null;
 try { queue = JSON.parse(localStorage.getItem('qcq') || '[]'); } catch (e) {}
 
-function saveQ() { try { localStorage.setItem('qcq', JSON.stringify(queue)); } catch (e) {} qEl.textContent = 'Hàng đợi: ' + queue.length; }
-
-async function startCam() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
-    });
-    v.srcObject = stream;
-  } catch (e) { st.textContent = 'Lỗi camera: ' + e.message; }
+function saveQ() {
+  try { localStorage.setItem('qcq', JSON.stringify(queue.slice(0, MAX_QUEUE_PERSIST))); } catch (e) {}
+  qEl.textContent = 'Hàng đợi: ' + queue.length;
 }
 
+// ===== Bật/tắt camera theo nhu cầu, không giữ sống liên tục =====
+async function startCam() {
+  if (camActive) { armIdleTimer(); return; }
+  st.textContent = 'Đang mở camera...';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1280 }, height: { ideal: 720 },
+        frameRate: { ideal: 15, max: 20 }
+      },
+      audio: false
+    });
+    v.srcObject = stream;
+    camActive = true;
+    camOff.style.display = 'none';
+    st.textContent = 'Chạm nút để chụp';
+    armIdleTimer();
+  } catch (e) {
+    st.textContent = 'Lỗi camera: ' + e.message;
+  }
+}
+
+function stopCam() {
+  if (v.srcObject) {
+    v.srcObject.getTracks().forEach(t => t.stop());
+    v.srcObject = null;
+  }
+  camActive = false;
+  camOff.style.display = 'flex';
+  st.textContent = 'Chạm màn hình để bật camera';
+  clearTimeout(idleTimer);
+}
+
+function armIdleTimer() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(stopCam, CAM_IDLE_MS);
+}
+
+// ===== Chụp =====
 function capture() {
-  if (!v.videoWidth) return;
+  if (!camActive || !v.videoWidth) { startCam(); return; }
+  if (queue.length >= MAX_QUEUE) {
+    st.textContent = '⚠️ Hàng đợi đầy (' + MAX_QUEUE + '), chờ gửi bớt';
+    armIdleTimer();
+    return;
+  }
   const r = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
   const c = document.createElement('canvas');
   c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
   queue.push(c.toDataURL('image/jpeg', QUALITY).split(',')[1]); saveQ();
+
   flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
   if (navigator.vibrate) navigator.vibrate(30);
+  armIdleTimer();   // mỗi lần chụp reset lại đồng hồ nghỉ
   pump();
 }
 
+// ===== Gửi hàng đợi lên GAS =====
 async function pump() {
   if (sending) return; sending = true;
   while (queue.length) {
@@ -64,16 +112,31 @@ async function pump() {
       if (!j.ok) throw new Error(j.err || 'GAS lỗi');
       queue.shift(); sent++; saveQ();
       cntEl.textContent = 'Đã gửi: ' + sent;
-      st.textContent = '✅ Đã gửi';
+      st.textContent = camActive ? '✅ Đã gửi' : 'Chạm màn hình để bật camera';
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
-    } catch (e) { st.textContent = '⚠️ Lỗi mạng, sẽ gửi lại...'; await new Promise(r => setTimeout(r, 3000)); }
+    } catch (e) {
+      st.textContent = '⚠️ Lỗi mạng, sẽ gửi lại...';
+      await new Promise(r => setTimeout(r, 3000));
+    }
   }
   sending = false;
 }
 
-document.getElementById('shot').addEventListener('click', capture);
+// ===== Sự kiện =====
+document.getElementById('shot').addEventListener('click', e => { e.stopPropagation(); capture(); });
 v.addEventListener('click', capture);
-saveQ(); startCam(); if (queue.length) pump();
+camOff.addEventListener('click', startCam);
+
+// Chạm bất kỳ đâu khi camera đang tắt sẽ tự bật lại
+document.body.addEventListener('touchstart', () => { if (!camActive) startCam(); }, { passive: true });
+
+// Tắt camera ngay khi rời tab / khoá màn hình, tránh camera chạy ngầm vô ích
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopCam();
+});
+
+saveQ();
+if (queue.length) pump();  // gửi nốt ảnh còn tồn từ phiên trước, không tự bật camera
 </script>
 </body>
 </html>
