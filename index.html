@@ -36,6 +36,7 @@ const KEY = '129dccDCC';
 const MAX_SIDE = 1920, QUALITY = 0.85;
 const CAM_IDLE_MS = 8000;
 const MAX_QUEUE = 20;
+const BATCH_SEND = 5; // đủ 5 ảnh thì tự gửi 1 lượt; ít hơn thì bấm nút ép gửi
 const MAX_QUEUE_PERSIST = MAX_QUEUE;
 const SHARPNESS_MIN = 80; // chỉnh theo thực tế nếu hay báo mờ oan hoặc không bắt được ảnh mờ
 
@@ -127,37 +128,39 @@ function capture() {
   flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
   if (navigator.vibrate) navigator.vibrate(30);
   armIdleTimer();
-  pump();
+  if (queue.length >= BATCH_SEND) pump(false);
+  else st.textContent = '📥 Đã chụp (' + queue.length + '/' + BATCH_SEND + '), đủ ' + BATCH_SEND + ' sẽ tự gửi hoặc bấm Gửi ngay';
 }
 
 let retryTimer = null;
-async function pump() {
+// force=true: gửi hết hàng đợi dù chưa đủ batch. Mỗi lượt POST 1 mảng ảnh = 1 lần gọi GAS.
+async function pump(force) {
   if (sending) return; sending = true;
   clearTimeout(retryTimer);
-  while (queue.length) {
+  while (queue.length >= (force ? 1 : BATCH_SEND)) {
+    const chunk = queue.slice(0, BATCH_SEND);
     try {
-      st.textContent = 'Đang gửi (' + queue.length + ' còn lại)...';
-      const res = await fetch(GAS, { method: 'POST', body: JSON.stringify({ key: KEY, image: queue[0] }) });
+      st.textContent = 'Đang gửi ' + chunk.length + ' ảnh (' + queue.length + ' còn lại)...';
+      const res = await fetch(GAS, { method: 'POST', body: JSON.stringify({ key: KEY, images: chunk }) });
       const j = await res.json();
       if (!j.ok) throw new Error(j.err || 'GAS lỗi');
-      queue.shift(); sent++; saveQ();
+      queue.splice(0, chunk.length); sent += chunk.length; saveQ();
       cntEl.textContent = 'Đã gửi: ' + sent;
-      st.textContent = camActive ? '✅ Đã gửi' : (queue.length ? 'Đang gửi tiếp...' : 'Tất cả đã gửi — an toàn để tắt máy');
+      st.textContent = queue.length ? '✅ Đã gửi, còn ' + queue.length + ' ảnh chờ' : '✅ Tất cả đã gửi — an toàn để tắt máy';
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
     } catch (e) {
       st.textContent = '⚠️ Lỗi mạng (' + queue.length + ' ảnh chờ), thử lại sau 3s...';
       sending = false;
-      retryTimer = setTimeout(pump, 3000);
+      retryTimer = setTimeout(() => pump(force), 3000);
       return;
     }
   }
   sending = false;
-  if (!camActive) st.textContent = 'Tất cả đã gửi — an toàn để tắt máy';
 }
 
 pushBtn.addEventListener('click', () => {
   st.textContent = 'Đang ép gửi toàn bộ hàng đợi...';
-  pump();
+  pump(true);
 });
 
 document.getElementById('shot').addEventListener('click', e => { e.stopPropagation(); capture(); });
@@ -190,7 +193,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 saveQ();
-if (queue.length) pump();
+if (queue.length) st.textContent = 'Còn ' + queue.length + ' ảnh chờ — bấm Gửi ngay';
 </script>
 </body>
 </html>
