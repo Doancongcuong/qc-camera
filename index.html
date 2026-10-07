@@ -2,21 +2,31 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
 <title>QC Camera</title>
 <style>
-  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif;overflow:hidden}
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif;overflow:hidden;overscroll-behavior:none;touch-action:manipulation;-webkit-user-select:none;user-select:none}
   #v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#111}
-  #bar{position:absolute;left:0;right:0;bottom:0;padding:12px 0 24px;text-align:center;background:linear-gradient(transparent,rgba(0,0,0,.7))}
+  #bar{position:absolute;left:0;right:0;bottom:0;padding:12px 0 calc(24px + env(safe-area-inset-bottom));text-align:center;background:linear-gradient(transparent,rgba(0,0,0,.7))}
   #st{font-size:14px;margin-bottom:10px;min-height:20px}
   #shot{width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid #999}
   #shot:active{background:#ccc}
-  #top{position:absolute;top:0;left:0;right:0;padding:8px 12px;background:rgba(0,0,0,.5);font-size:13px;display:flex;justify-content:space-between;align-items:center}
+  #top{position:absolute;top:0;padding-top:calc(8px + env(safe-area-inset-top))!important;left:0;right:0;padding:8px 12px;background:rgba(0,0,0,.5);font-size:13px;display:flex;justify-content:space-between;align-items:center}
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .15s}
   #camOff{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px;text-align:center;padding:20px}
   #qbadge{padding:3px 10px;border-radius:12px;font-weight:bold;transition:background .2s}
   #qbadge.empty{background:#1a6b1a}
   #qbadge.pending{background:#a85a00}
+  #tools{position:absolute;right:12px;top:calc(56px + env(safe-area-inset-top));display:flex;flex-direction:column;gap:10px}
+  #tools button{width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.5);color:#fff;font-size:20px}
+  #tools button.on{background:#f1c40f;color:#000}
+  #zoomBadge{position:absolute;left:50%;transform:translateX(-50%);top:calc(56px + env(safe-area-inset-top));background:rgba(0,0,0,.5);padding:3px 10px;border-radius:12px;font-size:13px;display:none}
   #pushNow{display:none;margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
 </style>
 </head>
@@ -25,6 +35,8 @@
 <div id="camOff">Chạm màn hình để bật camera</div>
 <div id="flash"></div>
 <div id="top"><span id="cnt">Đã gửi: 0</span><span id="qbadge" class="empty">Hàng đợi: 0</span></div>
+<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button></div>
+<div id="zoomBadge">1.0×</div>
 <div id="bar">
   <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
   <button id="shot" aria-label="Chụp"></button>
@@ -34,8 +46,10 @@
 const GAS = 'https://script.google.com/macros/s/AKfycbzDm2-MOt4oqwKflqoyTv_6lwFbri4nDKUVfxBP3V5SSMcSngRVPeDLo6S2YJEjuNHliA/exec';
 const KEY = '129dccDCC';
 const MAX_SIDE = 1920, QUALITY = 0.85;
+const PHOTO_MAX_W = 4000;  // ảnh chụp thật (ImageCapture) lấy tối đa cỡ này rồi mới thu về MAX_SIDE
 const CAM_IDLE_MS = 8000;
 const MAX_QUEUE = 20;
+const FLUSH_IDLE_MS = 0; // >0: sau ngần ấy ms không chụp thêm thì tự gửi số ảnh còn lại (0 = tắt, chỉ gửi khi đủ batch hoặc bấm Gửi ngay)
 const BATCH_SEND = 5; // đủ 5 ảnh thì tự gửi 1 lượt; ít hơn thì bấm nút ép gửi
 const MAX_QUEUE_PERSIST = MAX_QUEUE;
 const SHARPNESS_MIN = 80; // chỉnh theo thực tế nếu hay báo mờ oan hoặc không bắt được ảnh mờ
@@ -66,12 +80,15 @@ async function startCam() {
     });
     v.srcObject = stream;
     camActive = true;
+    initTrackTools(stream.getVideoTracks()[0]);
+    keepAwake();
     camOff.style.display = 'none';
     st.textContent = 'Chạm nút để chụp';
     armIdleTimer();
   } catch (e) { st.textContent = 'Lỗi camera: ' + e.message; }
 }
 function stopCam() {
+  releaseAwake(); torchOn = false; torchBtn.classList.remove('on'); torchBtn.style.display = 'none'; zoomBadge.style.display = 'none';
   if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
   camActive = false;
   camOff.style.display = 'flex';
@@ -104,17 +121,83 @@ function sharpnessScore(canvas) {
   return variance / n;
 }
 
-function capture() {
+// ── Chức năng camera: đèn flash, zoom 2 ngón, giữ màn hình sáng, toàn màn hình ──
+const torchBtn = document.getElementById('torchBtn'), fsBtn = document.getElementById('fsBtn'), zoomBadge = document.getElementById('zoomBadge');
+let torchOn = false, zoomCaps = null, zoomVal = 1, wakeLock = null, zoomHide = null;
+function initTrackTools(track) {
+  let caps = {}; try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) {}
+  torchBtn.style.display = caps.torch ? 'block' : 'none';
+  zoomCaps = caps.zoom ? { min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1 } : null;
+  zoomVal = zoomCaps ? (track.getSettings().zoom || zoomCaps.min) : 1;
+}
+torchBtn.addEventListener('click', async e => {
+  e.stopPropagation();
+  const track = v.srcObject?.getVideoTracks()[0]; if (!track) return;
+  try { torchOn = !torchOn; await track.applyConstraints({ advanced: [{ torch: torchOn }] }); torchBtn.classList.toggle('on', torchOn); }
+  catch (err) { torchOn = false; torchBtn.classList.remove('on'); }
+  armIdleTimer();
+});
+async function setZoom(z) {
+  const track = v.srcObject?.getVideoTracks()[0]; if (!track || !zoomCaps) return;
+  zoomVal = Math.min(zoomCaps.max, Math.max(zoomCaps.min, z));
+  try { await track.applyConstraints({ advanced: [{ zoom: zoomVal }] }); } catch (e) {}
+  zoomBadge.textContent = zoomVal.toFixed(1) + '×'; zoomBadge.style.display = 'block';
+  clearTimeout(zoomHide); zoomHide = setTimeout(() => zoomBadge.style.display = 'none', 1200);
+  armIdleTimer();
+}
+let pinch0 = 0, zoom0 = 1;
+const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+v.addEventListener('touchstart', e => { if (e.touches.length === 2) { pinch0 = dist(e.touches); zoom0 = zoomVal; } }, { passive: true });
+v.addEventListener('touchmove', e => { if (e.touches.length === 2 && pinch0 && zoomCaps) setZoom(zoom0 * dist(e.touches) / pinch0); }, { passive: true });
+v.addEventListener('touchend', () => { pinch0 = 0; }, { passive: true });
+async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {} }
+function releaseAwake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+function goFullscreen() {
+  if (isStandalone() || document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+  document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+}
+fsBtn.addEventListener('click', e => { e.stopPropagation(); if (document.fullscreenElement) document.exitFullscreen(); else goFullscreen(); });
+if (isStandalone()) fsBtn.style.display = 'none';
+document.addEventListener('click', goFullscreen, { once: true });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && camActive) keepAwake(); });
+
+// Lấy ảnh: ưu tiên chụp thật (ImageCapture.takePhoto, nét và phân giải cao), không có thì cắt khung hình video.
+async function grabCanvas() {
+  const track = v.srcObject?.getVideoTracks()[0];
+  if (track && 'ImageCapture' in window) {
+    try {
+      const ic = new ImageCapture(track), opt = {};
+      try { const pc = await ic.getPhotoCapabilities(); if (pc.imageWidth && pc.imageWidth.max) opt.imageWidth = Math.min(pc.imageWidth.max, PHOTO_MAX_W); } catch (e) {}
+      const bmp = await createImageBitmap(await ic.takePhoto(opt));
+      const r = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      if (bmp.close) bmp.close();
+      return c;
+    } catch (e) { /* rơi xuống cắt khung hình */ }
+  }
+  const r = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return c;
+}
+
+let capturing = false;
+async function capture() {
   if (!camActive || !v.videoWidth) { startCam(); return; }
   if (queue.length >= MAX_QUEUE) {
     st.textContent = '⚠️ Hàng đợi đầy (' + MAX_QUEUE + '), chờ gửi bớt';
     armIdleTimer();
     return;
   }
-  const r = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
-  const c = document.createElement('canvas');
-  c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
-  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  if (capturing) return;
+  capturing = true;
+  let c;
+  try { c = await grabCanvas(); } finally { capturing = false; }
+  flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
 
   const score = sharpnessScore(c);
   if (score < SHARPNESS_MIN) {
@@ -125,14 +208,15 @@ function capture() {
   }
 
   queue.push(c.toDataURL('image/jpeg', QUALITY).split(',')[1]); saveQ();
-  flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
   if (navigator.vibrate) navigator.vibrate(30);
   armIdleTimer();
+  clearTimeout(flushTimer);
+  if (FLUSH_IDLE_MS > 0 && queue.length < BATCH_SEND) flushTimer = setTimeout(() => pump(true), FLUSH_IDLE_MS);
   if (queue.length >= BATCH_SEND) pump(false);
   else st.textContent = '📥 Đã chụp (' + queue.length + '/' + BATCH_SEND + '), đủ ' + BATCH_SEND + ' sẽ tự gửi hoặc bấm Gửi ngay';
 }
 
-let retryTimer = null;
+let retryTimer = null, flushTimer = null;
 // force=true: gửi hết hàng đợi dù chưa đủ batch. Mỗi lượt POST 1 mảng ảnh = 1 lần gọi GAS.
 async function pump(force) {
   if (sending) return; sending = true;
@@ -141,12 +225,14 @@ async function pump(force) {
     const chunk = queue.slice(0, BATCH_SEND);
     try {
       st.textContent = 'Đang gửi ' + chunk.length + ' ảnh (' + queue.length + ' còn lại)...';
+      const t0 = Date.now();
       const res = await fetch(GAS, { method: 'POST', body: JSON.stringify({ key: KEY, images: chunk }) });
       const j = await res.json();
       if (!j.ok) throw new Error(j.err || 'GAS lỗi');
       queue.splice(0, chunk.length); sent += chunk.length; saveQ();
       cntEl.textContent = 'Đã gửi: ' + sent;
-      st.textContent = queue.length ? '✅ Đã gửi, còn ' + queue.length + ' ảnh chờ' : '✅ Tất cả đã gửi — an toàn để tắt máy';
+      const tot = ((Date.now() - t0) / 1000).toFixed(1), gs = ((j.ms || 0) / 1000).toFixed(1), kb = Math.round(chunk.reduce((a, x) => a + x.length, 0) * 0.75 / 1024);
+      st.textContent = '⏱ ' + chunk.length + ' ảnh ' + kb + 'KB: tổng ' + tot + 's (GAS xử lý ' + gs + 's) · ' + (queue.length ? 'còn ' + queue.length + ' ảnh chờ' : 'đã gửi hết, an toàn tắt máy');
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
     } catch (e) {
       st.textContent = '⚠️ Lỗi mạng (' + queue.length + ' ảnh chờ), thử lại sau 3s...';
@@ -192,6 +278,7 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 saveQ();
 if (queue.length) st.textContent = 'Còn ' + queue.length + ' ảnh chờ — bấm Gửi ngay';
 </script>
