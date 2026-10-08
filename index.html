@@ -150,7 +150,16 @@ const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].cl
 v.addEventListener('touchstart', e => { if (e.touches.length === 2) { pinch0 = dist(e.touches); zoom0 = zoomVal; } }, { passive: true });
 v.addEventListener('touchmove', e => { if (e.touches.length === 2 && pinch0 && zoomCaps) setZoom(zoom0 * dist(e.touches) / pinch0); }, { passive: true });
 v.addEventListener('touchend', () => { pinch0 = 0; }, { passive: true });
-async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {} }
+let wakeReq = false;
+async function keepAwake() {
+  if (!navigator.wakeLock || wakeLock || wakeReq) return;
+  wakeReq = true;
+  try {
+    const l = await navigator.wakeLock.request('screen');
+    if (!camActive) { l.release(); return; }   // camera đã tắt trong lúc xin khoá: trả lại ngay, không để rò
+    wakeLock = l; l.addEventListener('release', () => { if (wakeLock === l) wakeLock = null; });
+  } catch (e) {} finally { wakeReq = false; }
+}
 function releaseAwake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
 const isStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
 function goFullscreen() {
