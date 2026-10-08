@@ -35,7 +35,7 @@
 <div id="camOff">Chạm màn hình để bật camera</div>
 <div id="flash"></div>
 <div id="top"><span id="cnt">Đã gửi: 0</span><span id="qbadge" class="empty">Hàng đợi: 0</span></div>
-<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button></div>
+<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fastBtn" aria-label="Chụp nhanh">⚡</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button></div>
 <div id="zoomBadge">1.0×</div>
 <div id="bar">
   <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
@@ -46,7 +46,7 @@
 const GAS = 'https://script.google.com/macros/s/AKfycbzDm2-MOt4oqwKflqoyTv_6lwFbri4nDKUVfxBP3V5SSMcSngRVPeDLo6S2YJEjuNHliA/exec';
 const KEY = '129dccDCC';
 const MAX_SIDE = 1920, QUALITY = 0.85;
-const PHOTO_MAX_W = 4000;  // ảnh chụp thật (ImageCapture) lấy tối đa cỡ này rồi mới thu về MAX_SIDE
+const PHOTO_MAX_W = 2400;  // chế độ chụp nét cao (ImageCapture): cỡ ảnh yêu cầu, nhỏ hơn thì ghi nhanh hơn
 const CAM_IDLE_MS = 8000;
 const MAX_QUEUE = 20;
 const FLUSH_IDLE_MS = 0; // >0: sau ngần ấy ms không chụp thêm thì tự gửi số ảnh còn lại (0 = tắt, chỉ gửi khi đủ batch hoặc bấm Gửi ngay)
@@ -75,7 +75,7 @@ async function startCam() {
   st.textContent = 'Đang mở camera...';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 15, max: 20 } },
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
       audio: false
     });
     v.srcObject = stream;
@@ -162,8 +162,24 @@ if (isStandalone()) fsBtn.style.display = 'none';
 document.addEventListener('click', goFullscreen, { once: true });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && camActive) keepAwake(); });
 
-// Lấy ảnh: ưu tiên chụp thật (ImageCapture.takePhoto, nét và phân giải cao), không có thì cắt khung hình video.
-async function grabCanvas() {
+// Chụp nhanh (mặc định): cắt ngay khung hình đang xem, gần như tức thì. Tắt ⚡ để dùng ImageCapture (nét cao nhưng ghi mất 1-2 giây).
+let fastMode = true; try { fastMode = localStorage.getItem('fast') !== '0'; } catch (e) {}
+const fastBtn = document.getElementById('fastBtn');
+fastBtn.classList.toggle('on', fastMode);
+fastBtn.addEventListener('click', e => {
+  e.stopPropagation(); fastMode = !fastMode; fastBtn.classList.toggle('on', fastMode);
+  try { localStorage.setItem('fast', fastMode ? '1' : '0'); } catch (err) {}
+  st.textContent = fastMode ? '⚡ Chụp nhanh: bật' : 'Chụp nét cao: ghi chậm 1-2 giây, giữ máy yên';
+  armIdleTimer();
+});
+function grabFrame() {
+  const r = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return c;
+}
+async function grabPhoto() {
   const track = v.srcObject?.getVideoTracks()[0];
   if (track && 'ImageCapture' in window) {
     try {
@@ -178,11 +194,11 @@ async function grabCanvas() {
       return c;
     } catch (e) { /* rơi xuống cắt khung hình */ }
   }
-  const r = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
-  const c = document.createElement('canvas');
-  c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
-  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-  return c;
+  return grabFrame();
+}
+function shutterFeedback() {
+  flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
+  if (navigator.vibrate) navigator.vibrate(30);
 }
 
 let capturing = false;
@@ -196,8 +212,8 @@ async function capture() {
   if (capturing) return;
   capturing = true;
   let c;
-  try { c = await grabCanvas(); } finally { capturing = false; }
-  flash.style.opacity = .8; setTimeout(() => flash.style.opacity = 0, 120);
+  if (fastMode) { c = grabFrame(); capturing = false; shutterFeedback(); }   // đồng bộ: lấy khung ngay lúc chạm
+  else { try { c = await grabPhoto(); } finally { capturing = false; } shutterFeedback(); }
 
   const score = sharpnessScore(c);
   if (score < SHARPNESS_MIN) {
@@ -208,7 +224,6 @@ async function capture() {
   }
 
   queue.push(c.toDataURL('image/jpeg', QUALITY).split(',')[1]); saveQ();
-  if (navigator.vibrate) navigator.vibrate(30);
   armIdleTimer();
   clearTimeout(flushTimer);
   if (FLUSH_IDLE_MS > 0 && queue.length < BATCH_SEND) flushTimer = setTimeout(() => pump(true), FLUSH_IDLE_MS);
