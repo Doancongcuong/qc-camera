@@ -75,7 +75,7 @@ async function startCam() {
   st.textContent = 'Đang mở camera...';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 24, max: 30 } },
       audio: false
     });
     v.srcObject = stream;
@@ -152,14 +152,16 @@ v.addEventListener('touchmove', e => { if (e.touches.length === 2 && pinch0 && z
 v.addEventListener('touchend', () => { pinch0 = 0; }, { passive: true });
 async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {} }
 function releaseAwake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
-const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const isStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
 function goFullscreen() {
   if (isStandalone() || document.fullscreenElement || !document.documentElement.requestFullscreen) return;
   document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
 }
 fsBtn.addEventListener('click', e => { e.stopPropagation(); if (document.fullscreenElement) document.exitFullscreen(); else goFullscreen(); });
 if (isStandalone()) fsBtn.style.display = 'none';
-document.addEventListener('click', goFullscreen, { once: true });
+// Trình duyệt chỉ cho vào toàn màn hình sau thao tác chạm: thử ở mỗi lần chạm đầu cho đến khi thành công
+function autoFs() { goFullscreen(); if (document.fullscreenElement || isStandalone()) document.removeEventListener('pointerup', autoFs); }
+document.addEventListener('pointerup', autoFs);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && camActive) keepAwake(); });
 
 // Chụp nhanh (mặc định): cắt ngay khung hình đang xem, gần như tức thì. Tắt ⚡ để dùng ImageCapture (nét cao nhưng ghi mất 1-2 giây).
