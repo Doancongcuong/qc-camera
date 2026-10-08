@@ -1,5 +1,5 @@
 // Cache vỏ trang để mở nhanh/offline. Yêu cầu tới GAS (khác origin) không đi qua đây.
-const CACHE = 'qc-camera-v3';
+const CACHE = 'qc-camera-v4';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
