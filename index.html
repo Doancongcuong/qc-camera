@@ -242,12 +242,19 @@ async function capture() {
   else st.textContent = '📥 Đã chụp (' + queue.length + '/' + BATCH_SEND + '), đủ ' + BATCH_SEND + ' sẽ tự gửi hoặc bấm Gửi ngay';
 }
 
-let retryTimer = null, flushTimer = null;
+let retryTimer = null, flushTimer = null, wantForce = false;
 // force=true: gửi hết hàng đợi dù chưa đủ batch. Mỗi lượt POST 1 mảng ảnh = 1 lần gọi GAS.
+// Bấm ép gửi lúc đang tự gửi: không bỏ qua, ghi nhớ và gửi nốt phần còn lại ngay sau lượt hiện tại.
 async function pump(force) {
-  if (sending) return; sending = true;
+  if (sending) {
+    if (force) { wantForce = true; st.textContent = '⏳ Đang gửi lượt hiện tại, xong sẽ gửi nốt ' + Math.max(queue.length - BATCH_SEND, 0) + ' ảnh còn lại...'; }
+    return;
+  }
+  sending = true;
   clearTimeout(retryTimer);
-  while (queue.length >= (force ? 1 : BATCH_SEND)) {
+  while (true) {
+    if (wantForce) { force = true; wantForce = false; }
+    if (queue.length < (force ? 1 : BATCH_SEND)) break;
     const chunk = queue.slice(0, BATCH_SEND);
     try {
       st.textContent = 'Đang gửi ' + chunk.length + ' ảnh (' + queue.length + ' còn lại)...';
@@ -263,6 +270,7 @@ async function pump(force) {
     } catch (e) {
       st.textContent = '⚠️ Lỗi mạng (' + queue.length + ' ảnh chờ), thử lại sau 3s...';
       sending = false;
+      if (wantForce) { force = true; wantForce = false; }
       retryTimer = setTimeout(() => pump(force), 3000);
       return;
     }
@@ -271,7 +279,7 @@ async function pump(force) {
 }
 
 pushBtn.addEventListener('click', () => {
-  st.textContent = 'Đang ép gửi toàn bộ hàng đợi...';
+  if (!sending) st.textContent = 'Đang ép gửi toàn bộ hàng đợi...';
   pump(true);
 });
 
