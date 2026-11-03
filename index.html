@@ -27,6 +27,7 @@
   #tools button{width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.5);color:#fff;font-size:20px}
   #tools button.on{background:#f1c40f;color:#000}
   #zoomBadge{position:absolute;left:50%;transform:translateX(-50%);top:calc(56px + env(safe-area-inset-top));background:rgba(0,0,0,.5);padding:3px 10px;border-radius:12px;font-size:13px;display:none}
+  #dim{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:#4a4a4a;font-size:13px}
   #pushNow{display:none;margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
 </style>
 </head>
@@ -35,13 +36,14 @@
 <div id="camOff">Chạm màn hình để bật camera</div>
 <div id="flash"></div>
 <div id="top"><span id="cnt">Đã gửi: 0</span><span id="qbadge" class="empty">Hàng đợi: 0</span></div>
-<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fastBtn" aria-label="Chụp nhanh">⚡</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button></div>
+<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fastBtn" aria-label="Chụp nhanh">⚡</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button><button id="dimBtn" aria-label="Tắt màn hình">🌙</button></div>
 <div id="zoomBadge">1.0×</div>
 <div id="bar">
   <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
   <button id="shot" aria-label="Chụp"></button>
   <div><button id="pushNow">⏫ Gửi ngay để tắt máy an toàn</button></div>
 </div>
+<div id="dim"><div id="dimInfo"></div></div>
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycbzDm2-MOt4oqwKflqoyTv_6lwFbri4nDKUVfxBP3V5SSMcSngRVPeDLo6S2YJEjuNHliA/exec';
 const KEY = '129dccDCC';
@@ -59,7 +61,7 @@ const cntEl = document.getElementById('cnt'), qBadge = document.getElementById('
 const flash = document.getElementById('flash'), camOff = document.getElementById('camOff');
 const pushBtn = document.getElementById('pushNow');
 
-let sent = 0, queue = [], sending = false, camActive = false, idleTimer = null;
+let sent = 0, queue = [], sending = false, camActive = false, idleTimer = null, dimMode = false;
 try { queue = JSON.parse(localStorage.getItem('qcq') || '[]'); } catch (e) {}
 
 function saveQ() {
@@ -68,6 +70,7 @@ function saveQ() {
   qBadge.textContent = 'Hàng đợi: ' + n;
   qBadge.className = n === 0 ? 'empty' : 'pending';
   pushBtn.style.display = n > 0 ? 'inline-block' : 'none';
+  dimSync();
 }
 
 async function startCam() {
@@ -156,7 +159,7 @@ async function keepAwake() {
   wakeReq = true;
   try {
     const l = await navigator.wakeLock.request('screen');
-    if (!camActive) { l.release(); return; }   // camera đã tắt trong lúc xin khoá: trả lại ngay, không để rò
+    if (!camActive && !dimMode) { l.release(); return; }   // camera đã tắt (và không ở chế độ đen) trong lúc xin khoá: trả lại ngay, không để rò
     wakeLock = l; l.addEventListener('release', () => { if (wakeLock === l) wakeLock = null; });
   } catch (e) {} finally { wakeReq = false; }
 }
@@ -171,7 +174,7 @@ if (isStandalone()) fsBtn.style.display = 'none';
 // Trình duyệt chỉ cho vào toàn màn hình sau thao tác chạm: thử ở mỗi lần chạm đầu cho đến khi thành công
 function autoFs() { goFullscreen(); if (document.fullscreenElement || isStandalone()) document.removeEventListener('pointerup', autoFs); }
 document.addEventListener('pointerup', autoFs);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && camActive) keepAwake(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && (camActive || dimMode)) keepAwake(); });
 
 // Chụp nhanh (mặc định): cắt ngay khung hình đang xem, gần như tức thì. Tắt ⚡ để dùng ImageCapture (nét cao nhưng ghi mất 1-2 giây).
 let fastMode = true; try { fastMode = localStorage.getItem('fast') !== '0'; } catch (e) {}
@@ -276,7 +279,27 @@ async function pump(force) {
     }
   }
   sending = false;
+  dimSync();
 }
+
+// DIM-BEGIN
+// Tắt màn hình giả: dừng camera, phủ đen. Màn hình chỉ được giữ thức khi còn ảnh chưa gửi; gửi hết thì nhả khoá để máy tự tắt.
+const dimEl = document.getElementById('dim'), dimInfo = document.getElementById('dimInfo'), dimBtn = document.getElementById('dimBtn');
+function dimSync() {
+  if (!dimMode) return;
+  if (queue.length > 0 || sending) { keepAwake(); dimInfo.textContent = 'Đang gửi · còn ' + queue.length + ' ảnh · chạm để bật lại'; }
+  else { releaseAwake(); dimInfo.textContent = '✓ Đã gửi hết ' + sent + ' ảnh — an toàn tắt máy · chạm để bật lại'; }
+}
+function enterDim() {
+  if (dimMode) return;
+  dimMode = true; stopCam(); dimEl.style.display = 'flex';
+  if (queue.length > 0) pump(true);   // người dùng định tắt máy: gửi nốt cả phần chưa đủ lượt
+  dimSync();
+}
+function exitDim() { if (!dimMode) return; dimMode = false; dimEl.style.display = 'none'; releaseAwake(); }
+// DIM-END
+dimBtn.addEventListener('click', e => { e.stopPropagation(); enterDim(); });
+dimEl.addEventListener('click', () => { exitDim(); startCam(); });
 
 pushBtn.addEventListener('click', () => {
   if (!sending) st.textContent = 'Đang ép gửi toàn bộ hàng đợi...';
@@ -301,7 +324,7 @@ v.addEventListener('click', async () => {
 });
 
 camOff.addEventListener('click', startCam);
-document.body.addEventListener('touchstart', () => { if (!camActive) startCam(); }, { passive: true });
+document.body.addEventListener('touchstart', () => { if (!camActive && !dimMode) startCam(); }, { passive: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopCam(); });
 
 window.addEventListener('beforeunload', (e) => {

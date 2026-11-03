@@ -1,14 +1,14 @@
 // Ép gửi lúc đang tự gửi: phải chờ lượt hiện tại xong rồi gửi nốt phần còn lại (trước đây bị bỏ qua).
 const fs = require('fs'), vm = require('vm'), assert = require('assert'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const a = html.indexOf('let retryTimer'), b = html.indexOf("pushBtn.addEventListener('click'");
+const a = html.indexOf('let retryTimer'), b = html.indexOf('// DIM-BEGIN');
 const code = html.slice(a, b);
 
 function setup() {
   const posts = []; const pend = [];                       // mỗi POST = 1 promise do test điều khiển
   const ctx = {
     queue: [], sending: false, sent: 0, BATCH_SEND: 5, KEY: 'k', GAS: 'g', navigator: {}, console,
-    st: { textContent: '' }, cntEl: { textContent: '' }, saveQ: () => {},
+    st: { textContent: '' }, cntEl: { textContent: '' }, saveQ: () => {}, dimSync: () => {},
     retryTimer: null, flushTimer: null, clearTimeout, setTimeout,
     fetch: (url, opt) => new Promise((res, rej) => { const n = JSON.parse(opt.body).images.length; posts.push(n); pend.push({ ok: () => res({ json: async () => ({ ok: true, ms: 1 }) }), fail: () => rej(new Error('net')), n }); }),
   };
