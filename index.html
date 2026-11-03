@@ -28,7 +28,7 @@
   #tools button.on{background:#f1c40f;color:#000}
   #zoomBadge{position:absolute;left:50%;transform:translateX(-50%);top:calc(56px + env(safe-area-inset-top));background:rgba(0,0,0,.5);padding:3px 10px;border-radius:12px;font-size:13px;display:none}
   #dim{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:#4a4a4a;font-size:13px}
-  #pushNow{margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
+  #pushNow{display:none;margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
 </style>
 </head>
 <body>
@@ -41,7 +41,7 @@
 <div id="bar">
   <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
   <button id="shot" aria-label="Chụp"></button>
-  <div><button id="pushNow">🌙 Tắt màn hình</button></div>
+  <div><button id="pushNow">🌙 Gửi hết & tắt màn hình</button></div>
 </div>
 <div id="dim"><div id="dimInfo"></div></div>
 <script>
@@ -68,7 +68,7 @@ function saveQ() {
   const n = queue.length;
   qBadge.textContent = 'Hàng đợi: ' + n;
   qBadge.className = n === 0 ? 'empty' : 'pending';
-  pushBtn.textContent = n > 0 ? '🌙 Gửi hết & tắt màn hình' : '🌙 Tắt màn hình';
+  pushBtn.style.display = n > 0 ? 'inline-block' : 'none';   // như cũ: chỉ hiện khi còn ảnh, giữ nguyên vị trí dưới nút chụp
   dimSync();
 }
 
@@ -273,7 +273,7 @@ function exitDim() { if (!dimMode) return; dimMode = false; dimEl.style.display 
 // DIM-END
 dimEl.addEventListener('click', () => { exitDim(); startCam(); });
 
-// Một nút duy nhất: còn ảnh thì ép gửi hết rồi tắt màn hình; hết ảnh thì chỉ tắt màn hình.
+// Nút này chỉ hiện khi còn ảnh: ép gửi hết rồi phủ đen.
 pushBtn.addEventListener('click', e => { e.stopPropagation(); enterDim(); });
 
 document.getElementById('shot').addEventListener('click', e => { e.stopPropagation(); capture(); });
