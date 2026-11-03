@@ -28,4 +28,6 @@ t = setup(['a']); t.api.dimSync(); assert.deepStrictEqual(t.log, []);
 // Thoát: ẩn lớp đen, nhả khoá (camera bật lại sẽ xin khoá mới)
 t = setup(['a']); t.api.enterDim(); t.log.length = 0; t.api.exitDim();
 assert.strictEqual(t.api.dimEl.style.display, 'none'); assert.deepStrictEqual(t.log, ['release']); assert.strictEqual(t.ctx.dimMode, false);
+// Chưa gửi ảnh nào mà bấm tắt: không nói "đã gửi hết 0 ảnh"
+t = setup([]); t.ctx.sent = 0; t.api.enterDim(); assert.ok(!/0 ảnh/.test(t.api.dimInfo.textContent) && /Đã tắt màn hình/.test(t.api.dimInfo.textContent));
 console.log('Chế độ đen: ĐẠT');

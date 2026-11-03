@@ -29,7 +29,7 @@
   #zoomBadge{position:absolute;left:50%;transform:translateX(-50%);top:calc(56px + env(safe-area-inset-top));background:rgba(0,0,0,.5);padding:3px 10px;border-radius:12px;font-size:13px;display:none}
   #dim{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:#4a4a4a;font-size:13px}
   #shotRow{position:relative;display:inline-block}
-  #pushNow{display:none;position:absolute;left:calc(100% + 14px);top:50%;transform:translateY(-50%);margin:0;padding:6px 10px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:12px;line-height:1.25;white-space:nowrap}
+  #pushNow{position:absolute;left:calc(100% + 14px);top:50%;transform:translateY(-50%);margin:0;padding:6px 10px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:12px;line-height:1.25;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -68,7 +68,7 @@ function saveQ() {
   const n = queue.length;
   qBadge.textContent = 'Hàng đợi: ' + n;
   qBadge.className = n === 0 ? 'empty' : 'pending';
-  pushBtn.style.display = n > 0 ? 'inline-block' : 'none';   // như cũ: chỉ hiện khi còn ảnh, giữ nguyên vị trí dưới nút chụp
+  pushBtn.innerHTML = n > 0 ? '🌙 Gửi hết<br>&amp; tắt màn hình' : '🌙 Tắt<br>màn hình';   // luôn hiện bên phải nút chụp; còn ảnh thì gửi hết rồi tắt
   dimSync();
 }
 
@@ -261,7 +261,7 @@ const dimEl = document.getElementById('dim'), dimInfo = document.getElementById(
 function dimSync() {
   if (!dimMode) return;
   if (queue.length > 0 || sending) { keepAwake(); dimInfo.textContent = 'Đang gửi · còn ' + queue.length + ' ảnh · chạm để bật lại'; }
-  else { releaseAwake(); dimInfo.textContent = '✓ Đã gửi hết ' + sent + ' ảnh — an toàn tắt máy · chạm để bật lại'; }
+  else { releaseAwake(); dimInfo.textContent = (sent ? '✓ Đã gửi hết ' + sent + ' ảnh — an toàn tắt máy' : '🌙 Đã tắt màn hình') + ' · chạm để bật lại'; }
 }
 function enterDim() {
   if (dimMode) return;
@@ -273,7 +273,7 @@ function exitDim() { if (!dimMode) return; dimMode = false; dimEl.style.display 
 // DIM-END
 dimEl.addEventListener('click', () => { exitDim(); startCam(); });
 
-// Nút này chỉ hiện khi còn ảnh: ép gửi hết rồi phủ đen.
+// Nút luôn hiện: tắt màn hình ngay (không chờ 8s); còn ảnh thì ép gửi hết trước.
 pushBtn.addEventListener('click', e => { e.stopPropagation(); enterDim(); });
 
 document.getElementById('shot').addEventListener('click', e => { e.stopPropagation(); capture(); });
