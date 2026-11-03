@@ -28,7 +28,7 @@
   #tools button.on{background:#f1c40f;color:#000}
   #zoomBadge{position:absolute;left:50%;transform:translateX(-50%);top:calc(56px + env(safe-area-inset-top));background:rgba(0,0,0,.5);padding:3px 10px;border-radius:12px;font-size:13px;display:none}
   #dim{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:#4a4a4a;font-size:13px}
-  #pushNow{display:none;margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
+  #pushNow{margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
 </style>
 </head>
 <body>
@@ -36,12 +36,12 @@
 <div id="camOff">Chạm màn hình để bật camera</div>
 <div id="flash"></div>
 <div id="top"><span id="cnt">Đã gửi: 0</span><span id="qbadge" class="empty">Hàng đợi: 0</span></div>
-<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button><button id="dimBtn" aria-label="Tắt màn hình">🌙</button></div>
+<div id="tools"><button id="torchBtn" aria-label="Đèn flash" style="display:none">🔦</button><button id="fsBtn" aria-label="Toàn màn hình">⛶</button></div>
 <div id="zoomBadge">1.0×</div>
 <div id="bar">
   <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
   <button id="shot" aria-label="Chụp"></button>
-  <div><button id="pushNow">⏫ Gửi ngay để tắt máy an toàn</button></div>
+  <div><button id="pushNow">🌙 Tắt màn hình</button></div>
 </div>
 <div id="dim"><div id="dimInfo"></div></div>
 <script>
@@ -68,7 +68,7 @@ function saveQ() {
   const n = queue.length;
   qBadge.textContent = 'Hàng đợi: ' + n;
   qBadge.className = n === 0 ? 'empty' : 'pending';
-  pushBtn.style.display = n > 0 ? 'inline-block' : 'none';
+  pushBtn.textContent = n > 0 ? '🌙 Gửi hết & tắt màn hình' : '🌙 Tắt màn hình';
   dimSync();
 }
 
@@ -80,6 +80,7 @@ async function startCam() {
       video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 24, max: 30 } },
       audio: false
     });
+    if (dimMode) { stream.getTracks().forEach(t => t.stop()); return; }   // chạm nút tắt màn hình lúc camera đang mở dở: đừng để camera chạy dưới lớp đen
     v.srcObject = stream;
     camActive = true;
     initTrackTools(stream.getVideoTracks()[0]);
@@ -256,7 +257,7 @@ async function pump(force) {
 
 // DIM-BEGIN
 // Tắt màn hình giả: dừng camera, phủ đen. Màn hình chỉ được giữ thức khi còn ảnh chưa gửi; gửi hết thì nhả khoá để máy tự tắt.
-const dimEl = document.getElementById('dim'), dimInfo = document.getElementById('dimInfo'), dimBtn = document.getElementById('dimBtn');
+const dimEl = document.getElementById('dim'), dimInfo = document.getElementById('dimInfo');
 function dimSync() {
   if (!dimMode) return;
   if (queue.length > 0 || sending) { keepAwake(); dimInfo.textContent = 'Đang gửi · còn ' + queue.length + ' ảnh · chạm để bật lại'; }
@@ -270,13 +271,10 @@ function enterDim() {
 }
 function exitDim() { if (!dimMode) return; dimMode = false; dimEl.style.display = 'none'; releaseAwake(); }
 // DIM-END
-dimBtn.addEventListener('click', e => { e.stopPropagation(); enterDim(); });
 dimEl.addEventListener('click', () => { exitDim(); startCam(); });
 
-pushBtn.addEventListener('click', () => {
-  if (!sending) st.textContent = 'Đang ép gửi toàn bộ hàng đợi...';
-  pump(true);
-});
+// Một nút duy nhất: còn ảnh thì ép gửi hết rồi tắt màn hình; hết ảnh thì chỉ tắt màn hình.
+pushBtn.addEventListener('click', e => { e.stopPropagation(); enterDim(); });
 
 document.getElementById('shot').addEventListener('click', e => { e.stopPropagation(); capture(); });
 
@@ -296,7 +294,7 @@ v.addEventListener('click', async () => {
 });
 
 camOff.addEventListener('click', startCam);
-document.body.addEventListener('touchstart', () => { if (!camActive && !dimMode) startCam(); }, { passive: true });
+document.body.addEventListener('touchstart', e => { if (!camActive && !dimMode && !e.target.closest?.('#pushNow')) startCam(); }, { passive: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopCam(); });
 
 window.addEventListener('beforeunload', (e) => {
