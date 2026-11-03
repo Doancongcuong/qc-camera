@@ -28,7 +28,8 @@
   #tools button.on{background:#f1c40f;color:#000}
   #zoomBadge{position:absolute;left:50%;transform:translateX(-50%);top:calc(56px + env(safe-area-inset-top));background:rgba(0,0,0,.5);padding:3px 10px;border-radius:12px;font-size:13px;display:none}
   #dim{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;color:#4a4a4a;font-size:13px}
-  #pushNow{display:none;margin-top:8px;padding:6px 14px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:13px}
+  #shotRow{position:relative;display:inline-block}
+  #pushNow{display:none;position:absolute;left:calc(100% + 14px);top:50%;transform:translateY(-50%);margin:0;padding:6px 10px;border-radius:6px;border:0;background:#2980b9;color:#fff;font-size:12px;line-height:1.25;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -40,8 +41,7 @@
 <div id="zoomBadge">1.0×</div>
 <div id="bar">
   <div id="st">Chạm màn hình để bật camera, chạm nút để chụp</div>
-  <button id="shot" aria-label="Chụp"></button>
-  <div><button id="pushNow">🌙 Gửi hết & tắt màn hình</button></div>
+  <div id="shotRow"><button id="shot" aria-label="Chụp"></button><button id="pushNow">🌙 Gửi hết<br>&amp; tắt màn hình</button></div>
 </div>
 <div id="dim"><div id="dimInfo"></div></div>
 <script>
@@ -215,7 +215,7 @@ async function capture() {
   clearTimeout(flushTimer);
   if (FLUSH_IDLE_MS > 0 && queue.length < BATCH_SEND) flushTimer = setTimeout(() => pump(true), FLUSH_IDLE_MS);
   if (queue.length >= BATCH_SEND) pump(false);
-  else st.textContent = '📥 Đã chụp (' + queue.length + '/' + BATCH_SEND + '), đủ ' + BATCH_SEND + ' sẽ tự gửi hoặc bấm Gửi ngay';
+  else st.textContent = '📥 Đã chụp (' + queue.length + '/' + BATCH_SEND + '), đủ ' + BATCH_SEND + ' sẽ tự gửi hoặc bấm Gửi hết';
 }
 
 let retryTimer = null, flushTimer = null, wantForce = false;
@@ -307,7 +307,7 @@ window.addEventListener('beforeunload', (e) => {
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 saveQ();
-if (queue.length) st.textContent = 'Còn ' + queue.length + ' ảnh chờ — bấm Gửi ngay';
+if (queue.length) st.textContent = 'Còn ' + queue.length + ' ảnh chờ — bấm Gửi hết';
 </script>
 </body>
 </html>
